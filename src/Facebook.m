@@ -813,9 +813,13 @@ static void *finishedContext = @"finishedContext";
 - (void)request:(FBRequest *)request didLoad:(id)result {
     _isExtendingAccessToken = NO;
     _requestExtendingAccessToken = nil;
-    NSString* accessToken = [result objectForKey:@"access_token"];
-    NSString* expTime = [result objectForKey:@"expires_at"];
+    NSString* accessToken = nil;
+    NSString* expTime = nil;
     
+    if ([result isKindOfClass:[NSDictionary class]]) {
+        accessToken = [result objectForKey:@"access_token"];
+        expTime = [result objectForKey:@"expires_at"];
+    }
     if (accessToken == nil || expTime == nil) {
         return;
     }
