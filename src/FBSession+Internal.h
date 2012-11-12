@@ -21,6 +21,11 @@
 - (void)refreshAccessToken:(NSString*)token expirationDate:(NSDate*)expireDate;
 - (BOOL)shouldExtendAccessToken;
 - (void)closeAndClearTokenInformation:(NSError*) error;
+- (BOOL)transitionToState:(FBSessionState)state
+           andUpdateToken:(NSString*)token
+        andExpirationDate:(NSDate*)date
+              shouldCache:(BOOL)shouldCache
+                loginType:(FBSessionLoginType)loginType;
 
 + (FBSession*)activeSessionIfOpen;
 

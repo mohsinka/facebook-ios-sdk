@@ -690,6 +690,9 @@ static FBSession *g_activeSession = nil;
                                  statePrior == FBSessionStateCreatedTokenLoaded
                                  );
             break;
+        case FBSessionStateDeepLink:
+            isValidTransition = YES;
+            break;
     }
     
     // if we are just about to transition to open or token loaded, and the caller
