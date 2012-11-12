@@ -452,6 +452,10 @@ static FBSession *g_activeSession = nil;
         case FBSessionStateOpenTokenExtended:
             return [self handleOpenURLReauthorize:params
                                       accessToken:accessToken];
+        case FBSessionStateDeepLink:
+            FBConditionalLog(NO, @"handleOpenURL called by deep link from fb app");
+            return YES;
+            
         default:
             FBConditionalLog(NO, @"handleOpenURL should not be called once a session has closed");
             return NO;
