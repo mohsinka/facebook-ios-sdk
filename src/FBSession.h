@@ -58,6 +58,9 @@ typedef enum {
      is underway*/
     FBSessionStateCreatedOpening            = 2,
     
+    /*! Open session state indicating user has opened activity link in fb app */
+    FBSessionStateDeepLink                  = 3,
+    
     /*! Open session state indicating user has logged in or a cached token is available */
     FBSessionStateOpen                      = 1 | FB_SESSIONSTATEOPENBIT,
     /*! Open session state indicating token has been extended */
