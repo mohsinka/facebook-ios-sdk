@@ -149,6 +149,13 @@ static FBSession *g_activeSession = nil;
                                   isRead:(BOOL)isRead
                          defaultAudience:(FBSessionDefaultAudience)defaultAudience
                        completionHandler:(FBSessionStateHandler)handler;
++ (BOOL)openActiveSessionWithPermissions:(NSArray*)permissions
+                            allowLoginUI:(BOOL)allowLoginUI
+                      allowSystemAccount:(BOOL)allowSystemAccount
+                                  isRead:(BOOL)isRead
+                         defaultAudience:(FBSessionDefaultAudience)defaultAudience
+                           stateDelegate:(id<FBSessionStateDelegate>)stateDelegate
+                       completionHandler:(FBSessionStateHandler)handler;
 + (void)validateRequestForPermissions:(NSArray*)permissions
                       defaultAudience:(FBSessionDefaultAudience)defaultAudience
                    allowSystemAccount:(BOOL)allowSystemAccount
@@ -168,6 +175,7 @@ static FBSession *g_activeSession = nil;
             appID = _appID,
             permissions = _permissions,
             loginType = _loginType,
+            fbSessionStateDelegate = _fbSessionStateDelegate,
 
             // following properties use manual KVO -- changes to names require
             // changes to static property name variables (e.g. FBisOpenPropertyName)
@@ -210,6 +218,99 @@ static FBSession *g_activeSession = nil;
                defaultAudience:FBSessionDefaultAudienceNone
                urlSchemeSuffix:urlSchemeSuffix
             tokenCacheStrategy:tokenCachingStrategy];
+}
+
+- (id)initWithAppID:(NSString *)appID
+        permissions:(NSArray *)permissions
+    defaultAudience:(FBSessionDefaultAudience)defaultAudience
+    urlSchemeSuffix:(NSString *)urlSchemeSuffix
+ tokenCacheStrategy:(FBSessionTokenCachingStrategy *)tokenCachingStrategy
+      stateDelegate:(id<FBSessionStateDelegate>)stateDelegate {
+    self = [super init];
+    if (self) {
+
+        // setup values where nil implies a default
+        if (!appID) {
+            appID = [FBSession defaultAppID];
+        }
+        if (!permissions) {
+            permissions = [NSArray array];
+        }
+        if (!tokenCachingStrategy) {
+            tokenCachingStrategy = [FBSessionTokenCachingStrategy defaultInstance];
+        }
+
+        // if we don't have an appID by here, fail -- this is almost certainly an app-bug
+        if (!appID) {
+            [[NSException exceptionWithName:FBInvalidOperationException
+                                     reason:@"FBSession: No AppID provided; either pass an "
+              @"AppID to init, or add a string valued key with the "
+              @"appropriate id named FacebookAppID to the bundle *.plist"
+                                   userInfo:nil]
+             raise];
+        }
+
+        // assign arguments;
+        self.appID = appID;
+        self.permissions = permissions;
+        self.urlSchemeSuffix = urlSchemeSuffix;
+        self.tokenCachingStrategy = tokenCachingStrategy;
+        self.fbSessionStateDelegate = stateDelegate;
+
+        // additional setup
+        _isInStateTransition = NO;
+        _isFacebookLoginToken = NO;
+        _loginTypeOfPendingOpenUrlCallback = FBSessionLoginTypeNone;
+        _isOSIntegratedFacebookLoginToken = NO;
+        _defaultDefaultAudience = defaultAudience;
+        self.attemptedRefreshDate = [NSDate distantPast];
+        self.refreshDate = nil;
+        self.state = FBSessionStateCreated;
+        self.loginType = FBSessionLoginTypeNone;
+        self.affinitizedThread = [NSThread currentThread];
+        [FBLogger registerCurrentTime:FBLoggingBehaviorPerformanceCharacteristics
+                              withTag:self];
+
+        // use cached token if present
+        NSDictionary *tokenInfo = [tokenCachingStrategy fetchTokenInformation];
+        if ([FBSessionTokenCachingStrategy isValidTokenInformation:tokenInfo]) {
+            NSDate *cachedTokenExpirationDate = [tokenInfo objectForKey:FBTokenInformationExpirationDateKey];
+            NSString *cachedToken = [tokenInfo objectForKey:FBTokenInformationTokenKey];
+
+            // get the cached permissions, and do a subset check
+            NSArray *cachedPermissions = [tokenInfo objectForKey:FBTokenInformationPermissionsKey];
+            BOOL isSubset = [FBSession areRequiredPermissions:permissions
+                                         aSubsetOfPermissions:cachedPermissions];
+
+            if (isSubset &&
+                // check to see if expiration date is later than now
+                (NSOrderedDescending == [cachedTokenExpirationDate compare:[NSDate date]])) {
+                // if we had cached anything at all, use those
+                if (cachedPermissions) {
+                    self.permissions = cachedPermissions;
+                }
+
+                // if we have cached an optional refresh date or Facebook Login indicator, pick them up here
+                self.refreshDate = [tokenInfo objectForKey:FBTokenInformationRefreshDateKey];
+                _isFacebookLoginToken = [[tokenInfo objectForKey:FBTokenInformationIsFacebookLoginKey] boolValue];
+                FBSessionLoginType loginType = [[tokenInfo objectForKey:FBTokenInformationLoginTypeLoginKey] intValue];
+                _isOSIntegratedFacebookLoginToken = loginType == FBSessionLoginTypeSystemAccount;
+
+                // set the state and token info
+                [self transitionToState:FBSessionStateCreatedTokenLoaded
+                         andUpdateToken:cachedToken
+                      andExpirationDate:cachedTokenExpirationDate
+                            shouldCache:NO
+                              loginType:loginType];
+            } else {
+                // else this token is expired and should be cleared from cache
+                [tokenCachingStrategy clearToken];
+            }
+        }
+
+        [FBSettings autoPublishInstall:self.appID];
+    }
+    return self;
 }
 
 - (id)initWithAppID:(NSString*)appID
@@ -542,6 +643,19 @@ static FBSession *g_activeSession = nil;
                                      completionHandler:handler];
 }
 
++ (BOOL)openActiveSessionWithReadPermissions:(NSArray*)readPermissions
+                                allowLoginUI:(BOOL)allowLoginUI
+                               stateDelegate:(id<FBSessionStateDelegate>)stateDelegate
+                           completionHandler:(FBSessionStateHandler)handler {
+    return [FBSession openActiveSessionWithPermissions:readPermissions
+                                          allowLoginUI:allowLoginUI
+                                    allowSystemAccount:YES
+                                                isRead:YES
+                                       defaultAudience:FBSessionDefaultAudienceNone
+                                         stateDelegate:stateDelegate
+                                     completionHandler:handler];
+}
+
 + (BOOL)openActiveSessionWithPublishPermissions:(NSArray*)publishPermissions
                                 defaultAudience:(FBSessionDefaultAudience)defaultAudience
                                    allowLoginUI:(BOOL)allowLoginUI
@@ -557,6 +671,20 @@ static FBSession *g_activeSession = nil;
 + (FBSession*)activeSession {
     if (!g_activeSession) {
         FBSession *session = [[FBSession alloc] init];
+        [FBSession setActiveSession:session];
+        [session release];
+    }
+    return [[g_activeSession retain] autorelease];
+}
+
++ (FBSession*)activeSessionAndStateDelegate:(id<FBSessionStateDelegate>)stateDelegate {
+    if (!g_activeSession) {
+        FBSession *session = [[FBSession alloc] initWithAppID:nil
+                                                  permissions:nil
+                                              defaultAudience:FBSessionDefaultAudienceNone
+                                              urlSchemeSuffix:nil
+                                           tokenCacheStrategy:nil
+                                                stateDelegate:stateDelegate];
         [FBSession setActiveSession:session];
         [session release];
     }
@@ -1576,6 +1704,38 @@ static FBSession *g_activeSession = nil;
     return nil;
 }
 
++ (BOOL)openActiveSessionWithPermissions:(NSArray*)permissions
+                            allowLoginUI:(BOOL)allowLoginUI
+                      allowSystemAccount:(BOOL)allowSystemAccount
+                                  isRead:(BOOL)isRead
+                         defaultAudience:(FBSessionDefaultAudience)defaultAudience
+                           stateDelegate:(id<FBSessionStateDelegate>)stateDelegate
+                       completionHandler:(FBSessionStateHandler)handler {
+    // is everything in good order?
+    [FBSession validateRequestForPermissions:permissions
+                             defaultAudience:defaultAudience
+                          allowSystemAccount:allowSystemAccount
+                                      isRead:isRead];
+    BOOL result = NO;
+    FBSession *session = [[[FBSession alloc] initWithAppID:nil
+                                               permissions:permissions
+                                           defaultAudience:defaultAudience
+                                           urlSchemeSuffix:nil
+                                        tokenCacheStrategy:nil
+                                             stateDelegate:stateDelegate]
+                          autorelease];
+    if (allowLoginUI || session.state == FBSessionStateCreatedTokenLoaded) {
+        [FBSession setActiveSession:session];
+        // we open after the fact, in order to avoid overlapping close
+        // and open handler calls for blocks
+        FBSessionLoginBehavior howToBehave = allowSystemAccount ? FBSessionLoginBehaviorUseSystemAccountIfPresent : FBSessionLoginBehaviorWithFallbackToWebView;
+        [session openWithBehavior:howToBehave
+                completionHandler:handler];
+        result = session.isOpen;
+    }
+    return result;
+}
+
 + (void)validateRequestForPermissions:(NSArray*)permissions
                       defaultAudience:(FBSessionDefaultAudience)defaultAudience
                    allowSystemAccount:(BOOL)allowSystemAccount
@@ -1764,5 +1924,28 @@ static FBSession *g_activeSession = nil;
 }
 
 #pragma mark -
+#pragma mark FbSessionStateDelegate
+
+- (void)fbSessionStateDidChange:(FBSessionState)state
+{
+    if ([self.fbSessionStateDelegate respondsToSelector:@selector(fbSessionStateDidChange:)]) {
+        [self.fbSessionStateDelegate fbSessionStateDidChange:state];
+    }
+}
+
+- (void)fbSessionDidFinish:(FBSession *)session
+{
+    if ([self.fbSessionStateDelegate respondsToSelector:@selector(fbSessionDidFinish:)]) {
+        [self.fbSessionStateDelegate fbSessionDidFinish:session];
+    }
+}
+
+- (void)fbSession:(FBSession *)session didReceiveAccessToken:(NSString *)token
+{
+    if ([self.fbSessionStateDelegate respondsToSelector:@selector(fbSession:didReceiveAccessToken:)]) {
+        [self.fbSessionStateDelegate fbSession:session
+                         didReceiveAccessToken:token];
+    }
+}
 
 @end

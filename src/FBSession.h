@@ -19,6 +19,7 @@
 // up-front decl's
 @class FBSession;
 @class FBSessionTokenCachingStrategy;
+@protocol FBSessionStateDelegate;
 
 #define FB_SESSIONSTATETERMINALBIT (1 << 8)
 
@@ -203,7 +204,11 @@ typedef void (^FBSessionReauthorizeResultHandler)(FBSession *session,
  
  2. The object supports Key-Value Observing (KVO) for property changes.
  */
-@interface FBSession : NSObject
+@interface FBSession : NSObject {
+    id<FBSessionStateDelegate> _fbSessionStateDelegate;
+}
+
+@property(nonatomic, assign) id<FBSessionStateDelegate> fbSessionStateDelegate;
 
 /*!
  @methodgroup Creating a session
@@ -283,6 +288,27 @@ typedef void (^FBSessionReauthorizeResultHandler)(FBSession *session,
     defaultAudience:(FBSessionDefaultAudience)defaultAudience
     urlSchemeSuffix:(NSString*)urlSchemeSuffix
  tokenCacheStrategy:(FBSessionTokenCachingStrategy*)tokenCachingStrategy;
+
+/*!
+ @abstract
+ Following are the descriptions of the arguments along with their
+ defaults when ommitted.
+
+ @param permissions  An array of strings representing the permissions to request during the
+ authentication flow. A value of nil indicates basic permissions. The default is nil.
+ @param defaultAudience  Most applications use FBSessionDefaultAudienceNone here, only specifying an audience when using reauthorize to request publish permissions.
+ @param appID  The Facebook App ID for the session. If nil is passed in the default App ID will be obtained from a call to <[FBSession defaultAppID]>. The default is nil.
+ @param urlSchemeSuffix  The URL Scheme Suffix to be used in scenarious where multiple iOS apps use one Facebook App ID. A value of nil indicates that this information should be pulled from the plist. The default is nil.
+ @param tokenCachingStrategy Specifies a key name to use for cached token information in NSUserDefaults, nil
+ indicates a default value of @"FBAccessTokenInformationKey".
+ @param stateDelegate  Make your application the receiver of the sessionState callbacks in order to gain control over the state transitions mayhem
+ */
+- (id)initWithAppID:(NSString *)appID
+        permissions:(NSArray *)permissions
+    defaultAudience:(FBSessionDefaultAudience)defaultAudience
+    urlSchemeSuffix:(NSString *)urlSchemeSuffix
+ tokenCacheStrategy:(FBSessionTokenCachingStrategy *)tokenCachingStrategy
+      stateDelegate:(id<FBSessionStateDelegate>)stateDelegate;
 
 // instance readonly properties         
 
@@ -537,6 +563,10 @@ typedef void (^FBSessionReauthorizeResultHandler)(FBSession *session,
                                 allowLoginUI:(BOOL)allowLoginUI
                            completionHandler:(FBSessionStateHandler)handler;
 
++ (BOOL)openActiveSessionWithReadPermissions:(NSArray*)readPermissions
+                                allowLoginUI:(BOOL)allowLoginUI
+                               stateDelegate:(id<FBSessionStateDelegate>)stateDelegate
+                           completionHandler:(FBSessionStateHandler)handler;
 /*!
  @abstract
  This is a simple method for opening a session with Facebook. Using sessionOpen logs on a user,
@@ -586,6 +616,8 @@ typedef void (^FBSessionReauthorizeResultHandler)(FBSession *session,
  */
 + (FBSession*)activeSession;
 
++ (FBSession*)activeSessionAndStateDelegate:(id<FBSessionStateDelegate>)stateDelegate;
+
 /*!
  @abstract
  An appication may get or set the current active session. Certain high-level components in the SDK
@@ -618,4 +650,30 @@ typedef void (^FBSessionReauthorizeResultHandler)(FBSession *session,
  */
 + (NSString*)defaultAppID;
     
+@end
+
+////////////////////////////////////////////////////////////////////////////////
+
+/*
+ *Your application should implement this delegate
+ */
+@protocol FBSessionStateDelegate <NSObject>
+
+@optional
+
+/**
+ * Session State changed.
+ */
+- (void)fbSessionStateDidChange:(FBSessionState)state;
+
+/**
+ * Request in active session did finish and returned relevant session data
+ */
+- (void)fbSessionDidFinish:(FBSession *)session;
+
+/**
+ * Called when the Facebook API request has returned an access token.
+ */
+- (void)fbSession:(FBSession *)session didReceiveAccessToken:(NSString *)token;
+
 @end
