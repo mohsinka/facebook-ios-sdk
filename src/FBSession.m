@@ -904,6 +904,9 @@ static FBSession *g_activeSession = nil;
     // ... to here -- if YES
     _isInStateTransition = NO;
 
+    // call delegate about the session's state transition
+    [self fbSessionStateDidChange:self.state];
+    
     if (changingTokenAndDate) {
         // update the cache
         if (shouldCache) {
