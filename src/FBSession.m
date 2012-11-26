@@ -543,6 +543,7 @@ static FBSession *g_activeSession = nil;
 
     NSDictionary *params = [FBUtility dictionaryByParsingURLQueryPart:query];
     NSString *accessToken = [params objectForKey:@"access_token"];
+    [self fbSession:g_activeSession didReceiveAccessToken:accessToken];
 
     switch (self.state) {
         case FBSessionStateCreatedOpening:
@@ -1612,6 +1613,10 @@ static FBSession *g_activeSession = nil;
         reauthorizeHandler(self, error); 
     }
     [reauthorizeHandler release];
+    
+    if (self.state == FBSessionStateClosed) {
+        [self fbSessionDidFinish:g_activeSession];
+    }
 }
 
 - (NSString *)appBaseUrl {
