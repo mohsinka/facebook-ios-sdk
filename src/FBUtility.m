@@ -20,7 +20,6 @@
 #import "FBSBJSON.h"
 #import "FBSession.h"
 
-#import <AdSupport/AdSupport.h>
 #include <sys/time.h>
 
 static FBFetchedAppSettings *g_fetchedAppSettings = nil;
@@ -249,23 +248,11 @@ static NSError *g_fetchedAppSettingsError = nil;
 }
 
 + (NSString *)advertiserID {
-    NSString *advertiserID = nil;
-    if ([ASIdentifierManager class]) {
-        ASIdentifierManager *manager = [ASIdentifierManager sharedManager];
-        advertiserID = [[manager advertisingIdentifier] UUIDString];
-    }
-    return advertiserID;
+    return nil;
 }
 
 + (FBAdvertisingTrackingStatus)advertisingTrackingStatus {
-    FBAdvertisingTrackingStatus status = AdvertisingTrackingUnspecified;
-    if ([ASIdentifierManager class]) {
-        ASIdentifierManager *manager = [ASIdentifierManager sharedManager];
-        if (manager) {
-            status = [manager isAdvertisingTrackingEnabled] ? AdvertisingTrackingAllowed : AdvertisingTrackingDisallowed;
-        }
-    }
-    return status;
+    return AdvertisingTrackingUnspecified;
 }
 
 + (NSString *)simpleJSONEncode:(id)data {
